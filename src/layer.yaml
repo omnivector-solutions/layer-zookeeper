@@ -1,0 +1,10 @@
+includes: 
+- layer:basic
+- layer:apt
+- layer:status
+- interface:zookeeper
+options:
+  apt:
+    packages:
+      - openjdk-8-jre-headless
+repo: "https://github.com/omnivector-solutions/layer-zookeeper"

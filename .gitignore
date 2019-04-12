@@ -1,0 +1,6 @@
+build/
+layers/
+interfaces/
+.tox/
+*.tgz
+*.tar.gz

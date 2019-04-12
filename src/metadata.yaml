@@ -1,0 +1,26 @@
+name: zookeeper
+series:
+  - bionic
+summary: Apache Zookeeper
+maintainers:
+  - James Beedy <jamesbeedy@gmail.com>
+description: |
+  ZooKeeper is a centralized service for maintaining configuration information, naming,
+  providing distributed synchronization, and providing group services.
+tags:
+  - zookeeper
+  - asf
+  - omnivector
+subordinate: false
+provides:
+  zk:
+    interface: zookeeper
+peers:
+  zk-peers:
+    interface: zookeeper
+
+resources:
+  zookeeper-tarball:
+    type: file
+    filename: zookeeper.tgz
+    description: Zookeeper tar package
