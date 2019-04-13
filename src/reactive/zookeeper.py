@@ -66,15 +66,22 @@ ZK_CONFIG_FILE = ZK_CONFIG_DIR / 'zoo.cfg'
 LOG4J_CONFIG_FILE = ZK_CONFIG_DIR / 'log4j.properties'
 
 
+@when('apt.installed.openjdk-8-jre-headless')
+@when_not('zk.apt.deps.available')
+def zookeeper_apt_deps_available():
+    """Zookeeper deps available.
+    """
+
+    zk_status_and_log('active', "Apt deps available.")
+    set_flag('zk.apt.deps.available')
+
+
 @when_not('zk.user.available')
 def create_zookeeper_user():
     """Create zookeeper user.
     """
 
     zk_status_and_log('maint', "Creating 'zookeeper' user and home dir.")
-
-    if not ZK_HOME_DIR.exists():
-        ZK_HOME_DIR.mkdir(parents=True)
 
     adduser('zookeeper', system_user=True,
             home_dir=str(ZK_HOME_DIR))
@@ -114,7 +121,7 @@ def set_datalogdir_available_flag():
 @when('zk.user.available',
       'zk.datalogdir.storage.available',
       'zk.datadir.storage.available')
-@when_not('zk.storage.prepared')
+@when_not('zk.storage.available')
 def prepare_zk_storage_dirs():
     """
     Create (if not exists) and set perms on zk storage dirs.
@@ -137,22 +144,13 @@ def prepare_zk_storage_dirs():
 
     zk_status_and_log(
         'active',
-        "Creating/chowninghowning mounts successful."
+        "Creating/chowning mounts successful."
     )
-    set_flag('zk.storage.prepared')
+    set_flag('zk.storage.available')
 
 
-@when('apt.installed.openjdk-8-jre-headless')
-@when_not('zk.apt.deps.available')
-def zookeeper_apt_deps_available():
-    """Zookeeper deps available.
-    """
-
-    zk_status_and_log('active', "Apt deps available.")
-    set_flag('zk.apt.deps.available')
-
-
-@when('zk.apt.deps.available')
+@when('zk.apt.deps.available',
+      'zk.user.available')
 @when_not('zk.resource.available')
 def provision_zookeeper():
     """Proivision zookeeper resource.
@@ -193,7 +191,7 @@ def bind_address_zk_nodesavailable():
 @when('zk.bind.address.available',
       'zk.resource.available',
       'zk.dirs.available',
-      'zk.storage.prepared'
+      'zk.storage.available',
       'zk.apt.deps.available')
 @when_not('zk.init.config.available')
 def create_zookeeper_init_config():
@@ -209,9 +207,45 @@ def create_zookeeper_init_config():
     set_flag('zk.init.config.available')
 
 
-@when('zk.bind.address.available')
+@when('zk.bind.address.available',
+      'zk.init.config.available')
+@when_not('zk.systemd.available')
+def render_zookeeper_systemd():
+    """Install zk systemd service.
+    """
+
+    zk_status_and_log('maint', "Enabling 'zookeeper' systemd service.")
+
+    # Provision and enable the systemd service
+    ctxt = {
+        'zk_cfg': str(ZK_CONFIG_FILE),
+        'zk_home': str(ZK_HOME_DIR),
+        'zk_server_sh': str(ZK_SERVER_SH),
+    }
+    render(
+        source='zookeeper.service',
+        target='/etc/systemd/system/zookeeper.service',
+        context=ctxt
+    )
+    check_call(['systemctl', 'enable', 'zookeeper'])
+
+    zk_status_and_log('active', "'zookeeper' systemd service enabled.")
+    set_flag('zk.systemd.available')
+
+
+@when('zk.systemd.available')
+@when_not('zk.init.complete')
+def set_zookeeper_init_complete():
+    """Set the 'zk.init.complete' flag and log about it.
+    """
+
+    zk_status_and_log('active', "Zookeeper initialization complete.")
+    set_flag('zk.init.complete')
+
+
+@when('zk.init.complete')
 @when_not('zk.dynamic.config.available')
-def rerender_zookeeper_config():
+def render_zookeeper_dynamic_config():
     """When a new unit joins the zookeeper
     cluster we need to rerender the config with the new members.
 
@@ -233,60 +267,25 @@ def rerender_zookeeper_config():
         group='zookeeper'
     )
 
-    if not is_flag_set('zk.init.start.complete') and not \
+    if not is_flag_set('zk.init.start.available') and not \
        is_flag_set('leadership.is_leader'):
 
         init_start_zookeeper()
 
         set_flag('zk.init.started')
-        set_flag('zk.init.start.complete')
+        set_flag('zk.init.start.available')
 
-    elif not is_flag_set('zk.init.start.complete') and \
+    elif not is_flag_set('zk.init.start.available') and \
             is_flag_set('leadership.is_leader'):
 
         service_restart('zookeeper')
-        set_flag('zk.init.start.complete')
+        # Need to find a better way to do this other then sleep
+        sleep(5)
+        set_flag('zk.init.start.available')
 
     zk_status_and_log('active', "Zookeeper dynamic config rendered.")
+    zk_running_status()
     set_flag('zk.dynamic.config.available')
-
-
-@when('zk.bind.address.available',
-      'zk.init.config.available')
-@when_not('zk.systemd.available')
-def render_zookeeper_systemd():
-    """Install zk systemd service.
-    """
-
-    zk_status_and_log('maint', "Enabling 'zookeeper' systemd service.")
-
-    # Provision and enable the systemd service
-    ctxt = {
-        'zk_cfg': str(ZK_CFG_FILE),
-        'zk_home': str(ZK_HOME_DIR),
-        'zk_server_sh': str(ZK_SERVER_SH),
-    }
-    render(
-        source='zookeeper.service',
-        target='/etc/systemd/system/zookeeper.service',
-        context=ctxt
-    )
-    check_call(['systemctl', 'enable', 'zookeeper'])
-
-    zk_status_and_log('active', "'zookeeper' systemd service enabled.")
-    set_flag('zk.systemd.available')
-
-
-@when('zk.init.config.available',
-      'zk.systemd.available',
-      'zk.bind.address.available')
-@when_not('zk.init.complete')
-def set_zookeeper_init_complete():
-    """Set the 'zk.init.complete' flag and log about it.
-    """
-
-    zk_status_and_log('active', "Zookeeper initialization complete.")
-    set_flag('zk.init.complete')
 
 
 @when('zk.init.complete',
@@ -341,8 +340,10 @@ def reprovision_all_the_things():
     zk_resource_provisioned = provision_zookeeper_resource()
 
     if not zk_resource_provisioned:
-        status.blocked("TROUBLE PROVISIONING ZOOKEEPER RESOURCE, PLEASE DEBUG")
-        log("TROUBLE PROVISIONING ZOOKEEPER RESOURCE, PLEASE DEBUG")
+        zk_status_and_log(
+            'blocked',
+            "TROUBLE PROVISIONING ZOOKEEPER RESOURCE, PLEASE DEBUG"
+        )
         return
 
     setup_zookeeper_init_config()
@@ -425,7 +426,7 @@ def setup_zookeeper_init_config():
     """Render the initial config.
     """
 
-    # Provision /usr/lib/zookeeper/conf/zookeeper-env.sh
+    # Provision /opt/zookeeper/conf/zookeeper-env.sh
     if ZK_ENV_FILE.exists():
         ZK_ENV_FILE.unlink()
     render(
@@ -437,7 +438,7 @@ def setup_zookeeper_init_config():
         group='zookeeper',
     )
 
-    # Provision /usr/lib/zookeeper/conf/zoo.cfg
+    # Provision /opt/zookeeper/conf/zoo.cfg
     if ZK_CONFIG_FILE.exists():
         ZK_CONFIG_FILE.unlink()
 
@@ -457,10 +458,9 @@ def setup_zookeeper_init_config():
         group='zookeeper',
     )
 
-    # Provision /usr/lib/zookeeper/conf/log4j.properties
+    # Provision /opt/zookeeper/conf/log4j.properties
     if LOG4J_CONFIG_FILE.exists():
         LOG4J_CONFIG_FILE.unlink()
-
     render(
         source='log4j.properties',
         target=str(LOG4J_CONFIG_FILE),
@@ -469,7 +469,7 @@ def setup_zookeeper_init_config():
         group='zookeeper',
     )
 
-    # Provision /usr/lib/zookeeper/conf/zookeeper.cfg.dynamic
+    # Provision /opt/zookeeper/conf/zookeeper.cfg.dynamic
     if not ZK_DYNAMIC_CONFIG_FILE.exists():
         render(
             source='zookeeper.cfg.dynamic',
@@ -508,7 +508,7 @@ def provision_zookeeper_resource():
     check_call(
         ['tar', '-xzf', zk_tarball, '--strip=1', '-C', str(ZK_HOME_DIR)])
 
-    while not ZK_SERVER_SH.exists()
+    while not ZK_SERVER_SH.exists():
         sleep(1)
 
     chownr(str(ZK_HOME_DIR), 'zookeeper', 'zookeeper', chowntopdir=True)
