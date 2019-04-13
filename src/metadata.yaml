@@ -24,3 +24,11 @@ resources:
     type: file
     filename: zookeeper.tgz
     description: Zookeeper tar package
+
+storage:
+  datadir:
+    type: filesystem
+    location: /srv/zookeeper_datadir
+  datalogdir:
+    type: filesystem
+    location: /srv/zookeeper_datalogdir

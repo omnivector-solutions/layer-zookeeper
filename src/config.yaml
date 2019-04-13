@@ -1,0 +1,11 @@
+options:
+  four-letter-words:
+    type: string
+    default: "*"
+    description: |
+      Four letter words to whitelist.
+  standalone-enabled:
+    type: boolean
+    default: false
+    description: |
+      Enable standalone for development/singleton deploys.

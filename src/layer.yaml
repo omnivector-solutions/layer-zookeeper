@@ -2,6 +2,7 @@ includes:
 - layer:basic
 - layer:apt
 - layer:status
+- layer:leadership
 - interface:zookeeper
 options:
   apt:
