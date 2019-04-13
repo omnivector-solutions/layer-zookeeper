@@ -55,7 +55,10 @@ ZK_DATALOG_DIR = Path('/srv/zookeeper_datalogdir')
 ZK_LOG_DIR = Path('/var/log/zookeeper')
 ZK_TRACELOG_DIR = ZK_LOG_DIR / 'trace'
 
-ZK_HOME_DIR = Path('/srv/zookeeper')
+ZK_HOME_DIR = Path('/opt/zookeeper')
+ZK_BIN_DIR = ZK_HOME_DIR / 'bin'
+ZK_SERVER_SH = ZK_BIN_DIR / 'zkServer.sh'
+
 ZK_CONFIG_DIR = ZK_HOME_DIR / 'conf'
 ZK_ENV_FILE = ZK_CONFIG_DIR / 'zookeeper-env.sh'
 ZK_DYNAMIC_CONFIG_FILE = ZK_CONFIG_DIR / 'zookeeper.cfg.dynamic'
@@ -223,7 +226,7 @@ def rerender_zookeeper_config():
     if ZK_DYNAMIC_CONFIG_FILE.exists():
         ZK_DYNAMIC_CONFIG_FILE.unlink()
     render(
-        source='zookeeper_hosts.cfg',
+        source='zookeeper.cfg.dynamic',
         target=str(ZK_DYNAMIC_CONFIG_FILE),
         context=ctxt,
         owner='zookeeper',
@@ -258,10 +261,15 @@ def render_zookeeper_systemd():
     zk_status_and_log('maint', "Enabling 'zookeeper' systemd service.")
 
     # Provision and enable the systemd service
+    ctxt = {
+        'zk_cfg': str(ZK_CFG_FILE),
+        'zk_home': str(ZK_HOME_DIR),
+        'zk_server_sh': str(ZK_SERVER_SH),
+    }
     render(
         source='zookeeper.service',
         target='/etc/systemd/system/zookeeper.service',
-        context=[]
+        context=ctxt
     )
     check_call(['systemctl', 'enable', 'zookeeper'])
 
@@ -500,7 +508,7 @@ def provision_zookeeper_resource():
     check_call(
         ['tar', '-xzf', zk_tarball, '--strip=1', '-C', str(ZK_HOME_DIR)])
 
-    while not Path('/usr/lib/zookeeper/bin/zkServer.sh').exists():
+    while not ZK_SERVER_SH.exists()
         sleep(1)
 
     chownr(str(ZK_HOME_DIR), 'zookeeper', 'zookeeper', chowntopdir=True)

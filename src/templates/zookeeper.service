@@ -8,10 +8,10 @@ After=network.target
 Type=forking
 User=zookeeper
 Group=zookeeper
-ExecStart=/usr/lib/zookeeper/bin/zkServer.sh start /usr/lib/zookeeper/conf/zoo.cfg
-ExecStop=/usr/lib/zookeeper/bin/zkServer.sh stop /usr/lib/zookeeper/conf/zoo.cfg
-ExecReload=/usr/lib/zookeeper/bin/zkServer.sh restart /usr/lib/zookeeper/conf/zoo.conf
-WorkingDirectory=/srv/zookeeper
+ExecStart={{ zk_server_sh }} start {{ zk_cfg }}
+ExecStop={{ zk_server_sh }} stop {{ zk_cfg }}
+ExecReload={{ zk_server_sh }} restart {{ zk_cfg }}
+WorkingDirectory={{ zk_home }}
 
 [Install]
 WantedBy=default.target
