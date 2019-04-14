@@ -14,6 +14,7 @@ from charms.reactive import (
 )
 
 from charmhelpers.core import unitdata
+
 from charmhelpers.core.host import (
     adduser,
     chownr,
@@ -142,10 +143,7 @@ def prepare_zk_storage_dirs():
                group='zookeeper', follow_links=True,
                chowntopdir=True)
 
-    zk_status_and_log(
-        'active',
-        "Creating/chowning mounts successful."
-    )
+    zk_status_and_log('active', "Creating/chowning mounts successful.")
     set_flag('zk.storage.available')
 
 
@@ -268,20 +266,30 @@ def render_zookeeper_dynamic_config():
     )
 
     if not is_flag_set('zk.init.start.available') and not \
-       is_flag_set('leadership.is_leader'):
+            is_flag_set('leadership.is_leader'):
 
         init_start_zookeeper()
+
+        # Need to find a better way to do this other then sleep
+        sleep(5)
 
         set_flag('zk.init.started')
         set_flag('zk.init.start.available')
 
-    elif not is_flag_set('zk.init.start.available') and \
+    elif is_flag_set('zk.init.start.available') and not \
             is_flag_set('leadership.is_leader'):
 
         service_restart('zookeeper')
+
         # Need to find a better way to do this other then sleep
         sleep(5)
-        set_flag('zk.init.start.available')
+
+    elif is_flag_set('leadership.is_leader'):
+
+        service_restart('zookeeper')
+
+        # Need to find a better way to do this other then sleep
+        sleep(5)
 
     zk_status_and_log('active', "Zookeeper dynamic config rendered.")
     zk_running_status()
@@ -321,6 +329,9 @@ def get_set_zookeeper_version():
 
 @when('zk.init.started')
 def get_set_zookeeper_status():
+    """Set Zookeeper status once init complete.
+    """
+
     zk_running_status()
 
 
