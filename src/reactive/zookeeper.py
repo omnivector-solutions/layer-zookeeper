@@ -1,6 +1,5 @@
 import os
 from subprocess import check_call
-from pathlib import Path
 from time import sleep
 
 from charms.reactive import (
@@ -29,7 +28,6 @@ from charmhelpers.core.hookenv import (
     expected_peer_units,
     network_get,
     open_port,
-    open_ports,
     resource_get,
 )
 
@@ -42,34 +40,27 @@ from charms.layer.zookeeper import (
     get_zookeeper_mode,
     zk_status_and_log,
     poll_zk_ready,
+    update_zookeeper_dynamic_config,
+    ZK_CLIENT_PORT,
+    ZK_FOLLOWER_PORT,
+    ZK_LEADER_ELECTION_PORT,
+    ZK_DATA_DIR,
+    ZK_ID_FILE,
+    ZK_DATALOG_DIR,
+    ZK_DYNAMIC_CONFIG_DIR,
+    ZK_DYNAMIC_CONFIG_FILE,
+    ZK_LOG_DIR,
+    ZK_TRACELOG_DIR,
+    ZK_HOME_DIR,
+    ZK_SERVER_SH,
+    ZK_ENV_FILE,
+    ZK_CONFIG_FILE,
+    LOG4J_CONFIG_FILE,
 )
 
 
 CONFIG = config()
 KV = unitdata.kv()
-
-ZK_CLIENT_PORT = 2181
-
-ZK_DATA_DIR = Path('/srv/zookeeper_data')
-ZK_ID_FILE = ZK_DATA_DIR / 'myid'
-
-ZK_DATALOG_DIR = Path('/srv/zookeeper_datalog')
-
-ZK_DYNAMIC_CONFIG_DIR = Path('/srv/zookeeper_config')
-ZK_DYNAMIC_CONFIG_FILE = ZK_DYNAMIC_CONFIG_DIR / 'zookeeper.cfg.dynamic'
-
-
-ZK_LOG_DIR = Path('/var/log/zookeeper')
-ZK_TRACELOG_DIR = ZK_LOG_DIR / 'trace'
-
-ZK_HOME_DIR = Path('/opt/zookeeper')
-ZK_BIN_DIR = ZK_HOME_DIR / 'bin'
-ZK_SERVER_SH = ZK_BIN_DIR / 'zkServer.sh'
-
-ZK_CONFIG_DIR = ZK_HOME_DIR / 'conf'
-ZK_ENV_FILE = ZK_CONFIG_DIR / 'zookeeper-env.sh'
-ZK_CONFIG_FILE = ZK_CONFIG_DIR / 'zoo.cfg'
-LOG4J_CONFIG_FILE = ZK_CONFIG_DIR / 'log4j.properties'
 
 
 @when('apt.installed.openjdk-8-jre-headless')
@@ -261,27 +252,19 @@ def render_zookeeper_dynamic_config():
     expected_num_units = len(list(expected_peer_units()))
     current_num_units = len(zk_nodes)
 
+    update_zookeeper_dynamic_config({'zk_nodes': zk_nodes})
+
     if (expected_num_units + 1) == current_num_units:
         zk_status_and_log(
             'maint',
             "Acquired all units, writing zk peers to dynamic config file."
         )
 
-        if ZK_DYNAMIC_CONFIG_FILE.exists():
-            ZK_DYNAMIC_CONFIG_FILE.unlink()
-        render(
-            source='zookeeper.cfg.dynamic',
-            target=str(ZK_DYNAMIC_CONFIG_FILE),
-            context={'zk_nodes': zk_nodes},
-            owner='zookeeper',
-            group='zookeeper'
-        )
-
         if start_restart_zookeeper():
             if not is_flag_set('zk.init.started'):
                 set_flag('zk.init.started')
-            zk_running_status()
 
+        zk_running_status()
         set_flag('zk.dynamic.config.available')
     else:
         waiting_on = (expected_num_units + 1) - current_num_units
@@ -292,19 +275,20 @@ def render_zookeeper_dynamic_config():
       'leadership.is_leader')
 @when_not('zk.init.started')
 def start_initial_zookeeper_systemd_for_leader():
-    """Start the zookeeper service for the first time on the master node.
+    """Start the zookeeper service for the first time on the leader
+    if no other peers exist..
     """
 
-    zk_nodes = KV.get('zk_nodes')
-    expected_num_units = len(list(expected_peer_units()))
-    current_num_units = len(zk_nodes)
+    # zk_nodes = KV.get('zk_nodes')
+    # expected_num_units = len(list(expected_peer_units()))
+    # current_num_units = len(zk_nodes)
 
-    if (expected_num_units + 1) == current_num_units:
-        zk_status_and_log('maint', "Starting Zookeeper.")
-        if start_restart_zookeeper():
-            set_flag('zk.init.started')
-    else:
-        zk_status_and_log('waiting', "Waiting on other units to become ready.")
+    # if (expected_num_units + 1) == current_num_units:
+    zk_status_and_log('maint', "Starting Zookeeper.")
+    if start_restart_zookeeper():
+        set_flag('zk.init.started')
+    # else:
+    # zk_status_and_log('waiting', "Waiting on other units to become ready.")
 
 
 @when('zk.init.started',
@@ -313,9 +297,9 @@ def start_initial_zookeeper_systemd_for_leader():
 def zookeeper_version():
     """Set the zookeeper version.
     """
-
-    set_zookeeper_version()
-    set_flag('zk.version.available')
+    if poll_zk_ready(KV.get('bind_address'), ZK_CLIENT_PORT):
+        set_zookeeper_version()
+        set_flag('zk.version.available')
 
 
 @when('zk.init.started')
@@ -352,13 +336,7 @@ def reprovision_all_the_things():
 
     setup_zookeeper_init_config()
 
-    # Start the appropriate services back up
-    if not service_running('zookeeper'):
-        service_start('zookeeper')
-
-    # Need to find a better way to poll for zookeeper
-    if is_flag_set('leadership.is_leader'):
-        sleep(5)
+    if poll_zk_ready(KV.get('bind_address'), ZK_CLIENT_PORT):
         set_zookeeper_version()
 
     zk_status_and_log('active', "Zookeeper upgrade complete.")
@@ -426,9 +404,10 @@ def start_restart_zookeeper():
     else:
         if service_start('zookeeper'):
             open_port(ZK_CLIENT_PORT)
-            open_ports(2888, 3888)
-            if poll_zk_ready(KV.get('bind_address'), ZK_CLIENT_PORT):
-                return True
+            open_port(ZK_FOLLOWER_PORT)
+            open_port(ZK_LEADER_ELECTION_PORT)
+    if poll_zk_ready(KV.get('bind_address'), ZK_CLIENT_PORT):
+        return True
     return False
 
 
