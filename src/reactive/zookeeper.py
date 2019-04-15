@@ -133,10 +133,7 @@ def prepare_zk_storage_dirs():
     ensure ownership of the dirs following the mount.
     """
 
-    zk_status_and_log(
-        'maint',
-        "Creating/chowning the zookeeper datadir and datalogdir."
-    )
+    zk_status_and_log('maint', "Creating/chowning zk data dirs.")
 
     for directory in [ZK_DATA_DIR, ZK_DATALOG_DIR]:
         if not directory.exists():
@@ -275,29 +272,22 @@ def render_zookeeper_dynamic_config():
 
         init_start_zookeeper()
 
-        # Need to find a better way to do this other then sleep
-        sleep(5)
-
         set_flag('zk.init.started')
         set_flag('zk.init.start.available')
 
     elif is_flag_set('zk.init.start.available') and not \
             is_flag_set('leadership.is_leader'):
-
         service_restart('zookeeper')
-
-        # Need to find a better way to do this other then sleep
-        sleep(5)
 
     elif is_flag_set('leadership.is_leader'):
-
         service_restart('zookeeper')
 
-        # Need to find a better way to do this other then sleep
-        sleep(5)
-
     zk_status_and_log('active', "Zookeeper dynamic config rendered.")
+
+    # Need to find a better way to do this other then sleep
+    sleep(5)
     zk_running_status()
+
     set_flag('zk.dynamic.config.available')
 
 
@@ -320,6 +310,8 @@ def zookeeper_version():
     """Set the zookeeper version.
     """
 
+    # Need to find a better way of polling for zk actually started
+    sleep(5)
     set_zookeeper_version()
     set_flag('zk.version.available')
 
@@ -559,14 +551,10 @@ def zk_status_and_log(status_level, msg):
 
 
 def set_zookeeper_version():
+    """Set Zookeeper version.
+    """
 
-    zk_status_and_log('maint', "Setting Zookeeper version.")
-
-    zk_version = application_version_set(
-        get_zookeeper_version(
-            KV.get('bind_address'),
-            ZK_CLIENT_PORT
-        )
-    )
-
+    zk_version = get_zookeeper_version(KV.get('bind_address'), ZK_CLIENT_PORT)
+    set_zookeeper_version(zk_version)
     zk_status_and_log('active', f"Zookeeper {zk_version} installed.")
+    return
