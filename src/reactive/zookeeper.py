@@ -555,6 +555,6 @@ def set_zookeeper_version():
     """
 
     zk_version = get_zookeeper_version(KV.get('bind_address'), ZK_CLIENT_PORT)
-    set_zookeeper_version(zk_version)
+    application_version_set(zk_version)
     zk_status_and_log('active', f"Zookeeper {zk_version} installed.")
     return
