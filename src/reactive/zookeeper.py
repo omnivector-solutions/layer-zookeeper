@@ -26,6 +26,7 @@ from charmhelpers.core.host import (
 from charmhelpers.core.hookenv import (
     application_version_set,
     config,
+    expected_peer_units,
     log,
     network_get,
     open_port,
@@ -253,42 +254,51 @@ def render_zookeeper_dynamic_config():
     becomes cleared or unset.
     """
 
-    zk_status_and_log('maint', "Writing zk peers to dynamic config file.")
+    # Do not attempt to start or restart until we have a config rendered with
+    # all of the expected units.
+    zk_nodes = KV.get('zk_nodes')
+    expected_num_units = len(list(expected_peer_units()))
+    current_num_units = len(zk_nodes)
 
-    ctxt = {'zk_nodes': KV.get('zk_nodes')}
+    if (expected_num_units + 1) == current_num_units:
+        zk_status_and_log(
+            'maint',
+            "Acquired all units, writing zk peers to dynamic config file."
+        )
 
-    if ZK_DYNAMIC_CONFIG_FILE.exists():
-        ZK_DYNAMIC_CONFIG_FILE.unlink()
-    render(
-        source='zookeeper.cfg.dynamic',
-        target=str(ZK_DYNAMIC_CONFIG_FILE),
-        context=ctxt,
-        owner='zookeeper',
-        group='zookeeper'
-    )
+        if ZK_DYNAMIC_CONFIG_FILE.exists():
+            ZK_DYNAMIC_CONFIG_FILE.unlink()
+        render(
+            source='zookeeper.cfg.dynamic',
+            target=str(ZK_DYNAMIC_CONFIG_FILE),
+            context={'zk_nodes': zk_nodes},
+            owner='zookeeper',
+            group='zookeeper'
+        )
 
-    if not is_flag_set('zk.init.start.available') and not \
-            is_flag_set('leadership.is_leader'):
+        if not is_flag_set('zk.init.start.available') and not \
+                is_flag_set('leadership.is_leader'):
 
-        init_start_zookeeper()
+            init_start_zookeeper()
+            set_flag('zk.init.started')
+            set_flag('zk.init.start.available')
 
-        set_flag('zk.init.started')
-        set_flag('zk.init.start.available')
+        elif is_flag_set('zk.init.start.available') and not \
+                is_flag_set('leadership.is_leader'):
 
-    elif is_flag_set('zk.init.start.available') and not \
-            is_flag_set('leadership.is_leader'):
-        service_restart('zookeeper')
+            service_restart('zookeeper')
 
-    elif is_flag_set('leadership.is_leader'):
-        service_restart('zookeeper')
+        elif is_flag_set('leadership.is_leader'):
 
-    zk_status_and_log('active', "Zookeeper dynamic config rendered.")
+            service_restart('zookeeper')
 
-    # Need to find a better way to do this other then sleep
-    sleep(5)
-    zk_running_status()
-
-    set_flag('zk.dynamic.config.available')
+        # Need to find a better way to do this other then sleep
+        sleep(10)
+        zk_running_status()
+        set_flag('zk.dynamic.config.available')
+    else:
+        waiting_on = (expected_num_units + 1) - current_num_units
+        zk_status_and_log('waiting', f"Waiting on {waiting_on} units.")
 
 
 @when('zk.init.complete',
