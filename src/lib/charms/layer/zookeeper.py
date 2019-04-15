@@ -33,4 +33,4 @@ def get_zookeeper_mode(host, port):
     if re_match:
         return re_match[0]
     else:
-        return "SOMETHING IS WRONG PLEASE DEBUG"
+        return "initializing"

@@ -48,10 +48,14 @@ KV = unitdata.kv()
 
 ZK_CLIENT_PORT = 2181
 
-ZK_DATA_DIR = Path('/srv/zookeeper_datadir')
+ZK_DATA_DIR = Path('/srv/zookeeper_data')
 ZK_ID_FILE = ZK_DATA_DIR / 'myid'
 
-ZK_DATALOG_DIR = Path('/srv/zookeeper_datalogdir')
+ZK_DATALOG_DIR = Path('/srv/zookeeper_datalog')
+
+ZK_DYNAMIC_CONFIG_DIR = Path('/srv/zookeeper_config')
+ZK_DYNAMIC_CONFIG_FILE = ZK_DYNAMIC_CONFIG_DIR / 'zookeeper.cfg.dynamic'
+
 
 ZK_LOG_DIR = Path('/var/log/zookeeper')
 ZK_TRACELOG_DIR = ZK_LOG_DIR / 'trace'
@@ -62,7 +66,6 @@ ZK_SERVER_SH = ZK_BIN_DIR / 'zkServer.sh'
 
 ZK_CONFIG_DIR = ZK_HOME_DIR / 'conf'
 ZK_ENV_FILE = ZK_CONFIG_DIR / 'zookeeper-env.sh'
-ZK_DYNAMIC_CONFIG_FILE = ZK_CONFIG_DIR / 'zookeeper.cfg.dynamic'
 ZK_CONFIG_FILE = ZK_CONFIG_DIR / 'zoo.cfg'
 LOG4J_CONFIG_FILE = ZK_CONFIG_DIR / 'log4j.properties'
 
@@ -99,8 +102,8 @@ def create_zookeeper_dirs():
 
     zk_status_and_log('maint', "Creating Zookeeper dirs.")
 
-    for directory in [ZK_LOG_DIR, ZK_TRACELOG_DIR,
-                      ZK_DATA_DIR, ZK_DATALOG_DIR]:
+    for directory in [ZK_LOG_DIR, ZK_TRACELOG_DIR, ZK_DATA_DIR,
+                      ZK_DATALOG_DIR, ZK_DYNAMIC_CONFIG_DIR]:
         if not directory.exists():
             directory.mkdir(parents=True)
         chownr(str(directory), 'zookeeper', 'zookeeper', chowntopdir=True)
@@ -164,6 +167,8 @@ def provision_zookeeper():
             "TROUBLE PROVISIONING ZOOKEEPER RESOURCE, PLEASE DEBUG"
         )
         return
+
+    chownr(str(ZK_HOME_DIR), 'zookeeper', 'zookeeper', chowntopdir=True)
 
     zk_status_and_log('active', "Zookeeper resource available.")
     set_flag('zk.resource.available')
@@ -308,22 +313,14 @@ def start_initial_zookeeper_systemd_for_leader():
     set_flag('zk.init.started')
 
 
-@when('zk.init.started')
+@when('zk.init.started',
+      'leadership.is_leader')
 @when_not('zk.version.available')
-def get_set_zookeeper_version():
+def zookeeper_version():
     """Set the zookeeper version.
     """
 
-    zk_status_and_log('maint', "Setting Zookeeper version.")
-
-    application_version_set(
-        get_zookeeper_version(
-            KV.get('bind_address'),
-            ZK_CLIENT_PORT
-        )
-    )
-
-    zk_status_and_log('active', "Zookeeper version set.")
+    set_zookeeper_version()
     set_flag('zk.version.available')
 
 
@@ -357,11 +354,18 @@ def reprovision_all_the_things():
         )
         return
 
+    chownr(str(ZK_HOME_DIR), 'zookeeper', 'zookeeper', chowntopdir=True)
+
     setup_zookeeper_init_config()
 
     # Start the appropriate services back up
     if not service_running('zookeeper'):
         service_start('zookeeper')
+
+    # Need to find a better way to poll for zookeeper
+    if is_flag_set('leadership.is_leader'):
+        sleep(5)
+        set_zookeeper_version()
 
     zk_status_and_log('active', "Zookeeper upgrade complete.")
     clear_flag('zk.version.available')
@@ -452,7 +456,6 @@ def setup_zookeeper_init_config():
     # Provision /opt/zookeeper/conf/zoo.cfg
     if ZK_CONFIG_FILE.exists():
         ZK_CONFIG_FILE.unlink()
-
     ctxt = {
         'zk_bind_address': KV.get('bind_address'),
         'zk_data_dir': str(ZK_DATA_DIR),
@@ -522,27 +525,20 @@ def provision_zookeeper_resource():
     while not ZK_SERVER_SH.exists():
         sleep(1)
 
-    chownr(str(ZK_HOME_DIR), 'zookeeper', 'zookeeper', chowntopdir=True)
     return True
 
 
 def zk_running_status():
+    """Set zookeeper running status.
+    """
+
     if service_running('zookeeper'):
-        zk_mode = get_zookeeper_mode(
-            KV.get('bind_address'),
-            ZK_CLIENT_PORT
-        )
+        zk_mode = get_zookeeper_mode(KV.get('bind_address'), ZK_CLIENT_PORT)
         num_zk_nodes = len(KV.get('zk_nodes', []))
-        zk_status_and_log(
-            'active',
-            'ZK {} - {} nodes'.format(zk_mode, num_zk_nodes)
-        )
+        zk_status_and_log('active', f'ZK {zk_mode} - {num_zk_nodes} nodes')
         return
     else:
-        zk_status_and_log(
-            'blocked',
-            'Zookeeper not starting, please debug'
-        )
+        zk_status_and_log('blocked', 'Zookeeper not starting, please debug')
         return
 
 
@@ -560,3 +556,17 @@ def zk_status_and_log(status_level, msg):
         status.maint(msg)
         log(msg)
     return
+
+
+def set_zookeeper_version():
+
+    zk_status_and_log('maint', "Setting Zookeeper version.")
+
+    zk_version = application_version_set(
+        get_zookeeper_version(
+            KV.get('bind_address'),
+            ZK_CLIENT_PORT
+        )
+    )
+
+    zk_status_and_log('active', f"Zookeeper {zk_version} installed.")
