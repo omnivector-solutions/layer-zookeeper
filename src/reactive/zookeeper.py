@@ -27,7 +27,6 @@ from charmhelpers.core.hookenv import (
     application_version_set,
     config,
     expected_peer_units,
-    log,
     network_get,
     open_port,
     open_ports,
@@ -41,6 +40,8 @@ from charms.layer import status
 from charms.layer.zookeeper import (
     get_zookeeper_version,
     get_zookeeper_mode,
+    zk_status_and_log,
+    poll_zk_ready,
 )
 
 
@@ -276,25 +277,11 @@ def render_zookeeper_dynamic_config():
             group='zookeeper'
         )
 
-        if not is_flag_set('zk.init.start.available') and not \
-                is_flag_set('leadership.is_leader'):
+        if start_restart_zookeeper():
+            if not is_flag_set('zk.init.started'):
+                set_flag('zk.init.started')
+            zk_running_status()
 
-            init_start_zookeeper()
-            set_flag('zk.init.started')
-            set_flag('zk.init.start.available')
-
-        elif is_flag_set('zk.init.start.available') and not \
-                is_flag_set('leadership.is_leader'):
-
-            service_restart('zookeeper')
-
-        elif is_flag_set('leadership.is_leader'):
-
-            service_restart('zookeeper')
-
-        # Need to find a better way to do this other then sleep
-        sleep(10)
-        zk_running_status()
         set_flag('zk.dynamic.config.available')
     else:
         waiting_on = (expected_num_units + 1) - current_num_units
@@ -308,9 +295,16 @@ def start_initial_zookeeper_systemd_for_leader():
     """Start the zookeeper service for the first time on the master node.
     """
 
-    zk_status_and_log('maint', "Starting Zookeeper.")
-    init_start_zookeeper()
-    set_flag('zk.init.started')
+    zk_nodes = KV.get('zk_nodes')
+    expected_num_units = len(list(expected_peer_units()))
+    current_num_units = len(zk_nodes)
+
+    if (expected_num_units + 1) == current_num_units:
+        zk_status_and_log('maint', "Starting Zookeeper.")
+        if start_restart_zookeeper():
+            set_flag('zk.init.started')
+    else:
+        zk_status_and_log('waiting', "Waiting on other units to become ready.")
 
 
 @when('zk.init.started',
@@ -320,8 +314,6 @@ def zookeeper_version():
     """Set the zookeeper version.
     """
 
-    # Need to find a better way of polling for zk actually started
-    sleep(5)
     set_zookeeper_version()
     set_flag('zk.version.available')
 
@@ -424,19 +416,20 @@ def provide_client_relation_data():
 #
 
 
-def init_start_zookeeper():
+def start_restart_zookeeper():
     """
-    Start Zookeeper
+    Start or restart Zookeeper
     """
 
-    if service_start('zookeeper'):
-        open_port(ZK_CLIENT_PORT)
-        open_ports(2888, 3888)
-        zk_status_and_log('active', "Zookeeper started.")
-        return
+    if service_running('zookeeper'):
+        service_restart('zookeeper')
     else:
-        zk_status_and_log('blocked', "PLEASE DEBUG: Zookeeper not starting.")
-        return
+        if service_start('zookeeper'):
+            open_port(ZK_CLIENT_PORT)
+            open_ports(2888, 3888)
+            if poll_zk_ready(KV.get('bind_address'), ZK_CLIENT_PORT):
+                return True
+    return False
 
 
 def setup_zookeeper_init_config():
@@ -542,22 +535,6 @@ def zk_running_status():
     else:
         zk_status_and_log('blocked', 'Zookeeper not starting, please debug')
         return
-
-
-def zk_status_and_log(status_level, msg):
-    if status_level == "active":
-        status.active(msg)
-        log(msg)
-    elif status_level == "blocked":
-        status.blocked(msg)
-        log(msg)
-    elif status_level == "waiting":
-        status.waiting(msg)
-        log(msg)
-    elif status_level == "maint" or status_level == "maintenance":
-        status.maint(msg)
-        log(msg)
-    return
 
 
 def set_zookeeper_version():

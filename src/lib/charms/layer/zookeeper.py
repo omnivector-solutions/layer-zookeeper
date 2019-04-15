@@ -1,5 +1,11 @@
 import re
+from time import sleep
 import socket
+
+from charmhelpers.core.hookenv import log
+from charmhelpers.core.host import service_running
+
+from charms.layer import status
 
 
 def netcat(host, port, content):
@@ -34,3 +40,31 @@ def get_zookeeper_mode(host, port):
         return re_match[0]
     else:
         return "initializing"
+
+
+def poll_zk_ready(host, port):
+    if service_running('zookeeper'):
+        count = 0
+        while count <= 100:
+            if get_zookeeper_mode(host, port) == "initializing":
+                sleep(1)
+                count += 1
+            else:
+                return True
+    return False
+
+
+def zk_status_and_log(status_level, msg):
+    if status_level == "active":
+        status.active(msg)
+        log(msg)
+    elif status_level == "blocked":
+        status.blocked(msg)
+        log(msg)
+    elif status_level == "waiting":
+        status.waiting(msg)
+        log(msg)
+    elif status_level == "maint" or status_level == "maintenance":
+        status.maint(msg)
+        log(msg)
+    return
