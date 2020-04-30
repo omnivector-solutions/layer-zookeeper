@@ -374,7 +374,7 @@ def update_unitdata_kv_with_curent_peers():
         zk_status_and_log('active', "Zookeeper peers acquired.")
 
 
-@when('endpoint.zookeeper.available',
+@when('endpoint.zk.available',
       'zk.bind.address.available')
 def provide_client_relation_data():
     """
@@ -383,11 +383,11 @@ def provide_client_relation_data():
 
     zk_status_and_log('maint', "Sending client data over 'zk' endpoint.")
 
-    endpoint_from_flag('endpoint.zookeeper.available').configure(
+    endpoint_from_flag('endpoint.zk.available').configure(
         KV.get('bind_address'), ZK_CLIENT_PORT)
 
     zk_status_and_log('active', "Zookeeper client data sent.")
-    clear_flag('endpoint.zookeeper.available')
+    clear_flag('endpoint.zk.available')
 
 #
 # Utility functions
